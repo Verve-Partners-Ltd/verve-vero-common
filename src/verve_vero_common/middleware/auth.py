@@ -6,7 +6,8 @@ from typing import Callable, Optional
 
 import structlog
 from fastapi import Request, Response
-from jose import jwt, JWTError
+from fastapi.responses import JSONResponse
+from jose import jwt, ExpiredSignatureError, JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from verve_vero_common.auth.context import set_auth_context, clear_auth_context
@@ -19,6 +20,17 @@ USER_TYPE_HEADER = "X-User-Type"
 PORTAL_ID_HEADER = "X-Portal-ID"
 TENANT_ID_HEADER = "X-Tenant-ID"
 GATEWAY_SECRET_HEADER = "X-Gateway-Secret"
+
+# Paths that skip token validation in dev mode (no auth required)
+DEV_PUBLIC_PATHS = [
+    "/api/v1/auth/login/portal",
+    "/api/v1/auth/login/admin",
+    "/api/v1/auth/refresh",
+    "/api/v1/health",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+]
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -61,9 +73,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
         portal_id = None
 
         if self.dev_mode:
+            # Skip token check for public paths in dev mode
+            path = request.url.path
+            is_public = any(path.startswith(p) for p in DEV_PUBLIC_PATHS)
+
             # Dev mode: decode JWT from Authorization Bearer token
             auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
+            if not auth_header or not auth_header.startswith("Bearer "):
+                if not is_public:
+                    log.warning("missing_auth_token", path=path)
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Missing authentication token", "code": "missing_token"},
+                    )
+            else:
                 try:
                     payload = jwt.decode(
                         auth_header[7:],
@@ -74,8 +97,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         user_id = payload.get("sub")
                         user_type = payload.get("user_type")
                         portal_id = payload.get("portal_slug")
+                except ExpiredSignatureError:
+                    log.warning("expired_jwt_token", path=path)
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Token has expired", "code": "expired_token"},
+                    )
                 except JWTError:
-                    log.warning("invalid_jwt_token", path=request.url.path)
+                    log.warning("invalid_jwt_token", path=path)
         else:
             # Production: verify gateway secret and read headers
             gateway_secret = request.headers.get(GATEWAY_SECRET_HEADER)
