@@ -18,15 +18,22 @@ log = structlog.get_logger()
 USER_ID_HEADER = "X-User-ID"
 USER_TYPE_HEADER = "X-User-Type"
 PORTAL_ID_HEADER = "X-Portal-ID"
+PORTAL_UUID_HEADER = "X-Portal-UUID"
 TENANT_ID_HEADER = "X-Tenant-ID"
+PORTAL_UUID_HEADER = "X-Portal-UUID"
 GATEWAY_SECRET_HEADER = "X-Gateway-Secret"
 
 # Paths that skip token validation in dev mode (no auth required)
 DEV_PUBLIC_PATHS = [
     "/api/v1/auth/login/portal",
     "/api/v1/auth/login/admin",
+    "/api/v1/auth/login/chat",
     "/api/v1/auth/refresh",
     "/api/v1/health",
+    "/api/v1/portals/public/branding",
+    "/api/v1/portals/internal/",
+    "/api/v1/agents/",
+    "/api/v1/internal/",
     "/docs",
     "/redoc",
     "/openapi.json",
@@ -71,6 +78,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         user_id = None
         user_type = None
         portal_id = None
+        portal_uuid = None
 
         if self.dev_mode:
             # Skip token check for public paths in dev mode
@@ -97,6 +105,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         user_id = payload.get("sub")
                         user_type = payload.get("user_type")
                         portal_id = payload.get("portal_slug")
+                        portal_uuid=payload.get("portal_id")
                 except ExpiredSignatureError:
                     log.warning("expired_jwt_token", path=path)
                     return JSONResponse(
@@ -125,6 +134,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             user_id = request.headers.get(USER_ID_HEADER)
             user_type = request.headers.get(USER_TYPE_HEADER)
             portal_id = request.headers.get(PORTAL_ID_HEADER)
+            portal_uuid = request.headers.get(PORTAL_UUID_HEADER)
 
         tenant_id = request.headers.get(TENANT_ID_HEADER)
 
@@ -135,7 +145,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Set auth context for role-based access control
         if user_id and user_type:
-            set_auth_context(user_id=user_id, user_type=user_type, portal_id=portal_id)
+            set_auth_context(user_id=user_id, user_type=user_type, portal_id=portal_id, portal_uuid=portal_uuid)
             structlog.contextvars.bind_contextvars(
                 user_id=user_id, user_type=user_type, portal_id=portal_id
             )
