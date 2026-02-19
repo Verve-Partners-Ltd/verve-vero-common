@@ -20,7 +20,6 @@ USER_TYPE_HEADER = "X-User-Type"
 PORTAL_ID_HEADER = "X-Portal-ID"
 PORTAL_UUID_HEADER = "X-Portal-UUID"
 TENANT_ID_HEADER = "X-Tenant-ID"
-PORTAL_UUID_HEADER = "X-Portal-UUID"
 GATEWAY_SECRET_HEADER = "X-Gateway-Secret"
 
 # Paths that skip token validation in dev mode (no auth required)
