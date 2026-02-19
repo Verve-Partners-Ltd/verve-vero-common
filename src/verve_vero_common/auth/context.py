@@ -18,6 +18,7 @@ class AuthContext:
     user_id: str
     user_type: UserType
     portal_id: Optional[str]
+    portal_uuid: Optional[str]
 
 
 # Context variable to store auth context per request
@@ -25,13 +26,14 @@ _auth_context: ContextVar[Optional[AuthContext]] = ContextVar("auth_context", de
 
 
 def set_auth_context(
-    user_id: str, user_type: str, portal_id: Optional[str]
+    user_id: str, user_type: str, portal_id: Optional[str], portal_uuid: Optional[str] = None
 ) -> None:
     """Set authentication context for the current request"""
     context = AuthContext()
     context.user_id = user_id
     context.user_type = UserType(user_type)
     context.portal_id = portal_id if portal_id else None
+    context.portal_uuid = portal_uuid if portal_uuid else None
     _auth_context.set(context)
 
 
