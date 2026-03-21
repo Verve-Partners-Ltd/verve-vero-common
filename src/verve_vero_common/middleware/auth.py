@@ -24,15 +24,16 @@ GATEWAY_SECRET_HEADER = "X-Gateway-Secret"
 
 # Paths that skip token validation in dev mode (no auth required)
 DEV_PUBLIC_PATHS = [
-    "/api/v1/auth/login/portal",
-    "/api/v1/auth/login/admin",
-    "/api/v1/auth/login/chat",
-    "/api/v1/auth/refresh",
-    "/api/v1/health",
-    "/api/v1/portals/public/branding",
-    "/api/v1/portals/internal/",
-    "/api/v1/agents/",
-    "/api/v1/internal/",
+    "/user-service/api/v1/auth/login/portal",
+    "/user-service/api/v1/auth/login/admin",
+    "/user-service/api/v1/auth/login/chat",
+    "/user-service/api/v1/auth/refresh",
+    "/user-service/api/v1/health",
+    "/portal-service/api/v1/portals/public/branding",
+    "/cms-service/api/v1/site/public/branding",
+    "/portal-service/api/v1/portals/internal/",
+    "/portal-service/api/v1/agents/",
+    "/portal-service/api/v1/internal/",
     "/docs",
     "/redoc",
     "/openapi.json",
@@ -157,31 +158,45 @@ class AuthMiddleware(BaseHTTPMiddleware):
             self.set_portal_context(None)
 
 
+LOG_SKIP_PATHS = ("/healthz", "/readyz", "/health", "/")
+
+
 class RequestIdLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware to add request ID tracking and request logging.
 
     Ensures every request has a unique ID for tracing across services.
     Logs request method, path, status code, and duration.
     Propagates x-request-id in response header.
+    Skips logging for health check / readiness probe paths.
     """
+
+    def __init__(self, app, service_name: str = "unknown"):
+        super().__init__(app)
+        self.service_name = service_name
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
 
         structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(request_id=request_id)
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id,
+            service_name=self.service_name,
+        )
 
         start_time = time.time()
         response = await call_next(request)
         duration_ms = int((time.time() - start_time) * 1000)
 
-        log.info(
-            "http_request",
-            method=request.method,
-            path=str(request.url.path),
-            status_code=response.status_code,
-            duration_ms=duration_ms,
-        )
+        path = str(request.url.path)
+        # Skip logging for health checks and probes
+        if not path.endswith(LOG_SKIP_PATHS):
+            log.info(
+                "http_request",
+                method=request.method,
+                path=path,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+            )
 
         response.headers["x-request-id"] = request_id
         return response
