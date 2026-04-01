@@ -35,6 +35,7 @@ Portal DBs (choose one approach):
 """
 
 import json
+import re
 from typing import Optional
 
 
@@ -75,28 +76,43 @@ class DatabaseConfigMixin:
         Returns:
             Database URL for the portal, or None if not configured
         """
+        # Sanitize portal_id to match provisioner's database naming
+        safe_id = self._sanitize_portal_id(portal_id)
+
         # 1. Check explicit mapping first
         if self.PORTAL_DATABASE_URLS:
             try:
                 urls = json.loads(self.PORTAL_DATABASE_URLS)
-                if portal_id in urls:
-                    return urls[portal_id]
+                if safe_id in urls:
+                    return urls[safe_id]
             except json.JSONDecodeError:
                 pass
 
         # 2. Use template if provided
         if self.PORTAL_DATABASE_URL_TEMPLATE:
-            return self.PORTAL_DATABASE_URL_TEMPLATE.format(portal_id=portal_id)
+            return self.PORTAL_DATABASE_URL_TEMPLATE.format(portal_id=safe_id)
 
         # 3. Fall back to default template with DB_* settings
         if self.DB_HOST and self.DB_USER:
             password_part = f":{self.DB_PASSWORD}" if self.DB_PASSWORD else ""
             return (
                 f"postgresql://{self.DB_USER}{password_part}"
-                f"@{self.DB_HOST}:{self.DB_PORT}/{portal_id}"
+                f"@{self.DB_HOST}:{self.DB_PORT}/{safe_id}"
             )
 
         return None
+
+    @staticmethod
+    def _sanitize_portal_id(portal_id: str) -> str:
+        """Sanitize portal_id to match the provisioner's database naming convention.
+
+        Ensures consistency between database creation (provisioner) and
+        database connection (services). Matches the logic in
+        DatabaseProvisioner._generate_database_name().
+        """
+        safe_id = portal_id.lower().replace("-", "_")
+        safe_id = re.sub(r"[^a-z0-9_]", "", safe_id)
+        return safe_id
 
     def has_public_db(self) -> bool:
         """Check if public/control plane database is configured."""
