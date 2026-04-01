@@ -29,6 +29,7 @@ DEV_PUBLIC_PATHS = [
     "/user-service/api/v1/auth/login/chat",
     "/user-service/api/v1/auth/refresh",
     "/user-service/api/v1/health",
+    "/user-service/api/v1/auth/sso/",
     "/portal-service/api/v1/portals/public/branding",
     "/cms-service/api/v1/site/public/branding",
     "/portal-service/api/v1/portals/internal/",

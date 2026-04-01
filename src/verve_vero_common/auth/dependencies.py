@@ -76,4 +76,5 @@ def require_client_admin() -> dict:
         "user_id": context.user_id,
         "user_type": context.user_type.value,
         "portal_id": context.portal_id,
+        "portal_uuid": context.portal_uuid,
     }
