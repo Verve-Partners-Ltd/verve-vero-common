@@ -10,3 +10,4 @@ class UserType(str, PyEnum):
     PORTAL_ADMIN = "portal_admin"
     CLIENT_ADMIN = "client_admin"
     CHAT_USER = "chat_user"
+    EXTERNAL_API = "external_api"
