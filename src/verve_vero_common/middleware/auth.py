@@ -43,6 +43,7 @@ DEV_PUBLIC_PATHS = [
     "/user-service/api/v1/auth/mfa/validate",
     "/user-service/api/v1/auth/mfa/setup-required/init",
     "/user-service/api/v1/auth/mfa/setup-required/confirm",
+    "/user-service/api/v1/auth/system-sso/",
     "/docs",
     "/redoc",
     "/openapi.json",

@@ -40,14 +40,15 @@ def require_system_admin() -> dict:
 
 
 def require_portal_admin() -> dict:
-    """Dependency to require Portal Admin role"""
+    """Dependency to require Portal Admin role (system admins also accepted)"""
     context = require_auth()
-    if context.user_type != UserType.PORTAL_ADMIN:
+    if context.user_type not in (UserType.PORTAL_ADMIN, UserType.SYSTEM_ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Portal Admin access required"
         )
-    if not context.portal_id:
+    # System admins can access any portal; portal context comes from X-Tenant-ID header
+    if context.user_type != UserType.SYSTEM_ADMIN and not context.portal_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Portal context required"
