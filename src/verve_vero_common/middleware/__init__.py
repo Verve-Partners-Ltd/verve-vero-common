@@ -3,6 +3,7 @@
 from verve_vero_common.middleware.auth import (
     AuthMiddleware,
     RequestIdLoggingMiddleware,
+    UvicornHealthCheckFilter,
     USER_ID_HEADER,
     USER_TYPE_HEADER,
     PORTAL_ID_HEADER,
@@ -13,6 +14,7 @@ from verve_vero_common.middleware.auth import (
 __all__ = [
     "AuthMiddleware",
     "RequestIdLoggingMiddleware",
+    "UvicornHealthCheckFilter",
     "USER_ID_HEADER",
     "USER_TYPE_HEADER",
     "PORTAL_ID_HEADER",

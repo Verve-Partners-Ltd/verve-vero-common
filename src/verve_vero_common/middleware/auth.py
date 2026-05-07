@@ -1,5 +1,6 @@
 """Authentication and request logging middleware."""
 
+import logging
 import time
 import uuid
 from typing import Callable, Optional
@@ -13,6 +14,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from verve_vero_common.auth.context import set_auth_context, clear_auth_context
 
 log = structlog.get_logger()
+
+# ── Uvicorn access log health check filter ──────────────────────────
+
+HEALTH_LOG_KEYWORDS = ("/healthz", "/readyz", "/health", "/liveness", "/readiness", "GET / HTTP")
+
+
+class UvicornHealthCheckFilter(logging.Filter):
+    """Suppress uvicorn access log lines for health/readiness probes."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(kw in msg for kw in HEALTH_LOG_KEYWORDS)
 
 # Standardized header names (set by AWS API Gateway Lambda Authorizer)
 USER_ID_HEADER = "X-User-ID"
@@ -168,7 +181,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             self.set_portal_context(None)
 
 
-LOG_SKIP_PATHS = ("/healthz", "/readyz", "/health", "/")
+LOG_SKIP_SUFFIXES = ("/healthz", "/readyz", "/health", "/liveness", "/readiness")
+
+
+def _is_health_check(path: str) -> bool:
+    """Return True for health/readiness probe paths that should not be logged."""
+    return path == "/" or path.endswith(LOG_SKIP_SUFFIXES)
 
 
 class RequestIdLoggingMiddleware(BaseHTTPMiddleware):
@@ -187,7 +205,6 @@ class RequestIdLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
 
-        structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
             service_name=self.service_name,
@@ -199,7 +216,7 @@ class RequestIdLoggingMiddleware(BaseHTTPMiddleware):
 
         path = str(request.url.path)
         # Skip logging for health checks and probes
-        if not path.endswith(LOG_SKIP_PATHS):
+        if not _is_health_check(path):
             log.info(
                 "http_request",
                 method=request.method,
