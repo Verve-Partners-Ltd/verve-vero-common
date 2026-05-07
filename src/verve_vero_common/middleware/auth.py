@@ -1,5 +1,6 @@
 """Authentication and request logging middleware."""
 
+import json
 import logging
 import time
 import uuid
@@ -183,17 +184,99 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 LOG_SKIP_SUFFIXES = ("/healthz", "/readyz", "/health", "/liveness", "/readiness")
 
+# Path segments to skip when extracting resource type/id
+_PATH_SKIP_SEGMENTS = frozenset({
+    "api", "v1", "v2", "v3", "portal", "internal", "public", "auth", "site",
+})
+
+# UUID pattern: 8-4-4-4-12 hex chars
+_UUID_CHARS = frozenset("0123456789abcdef-")
+
+_AUDIT_ACTION_MAP = {
+    "POST": "created",
+    "PUT": "updated",
+    "PATCH": "updated",
+    "DELETE": "deleted",
+}
+
 
 def _is_health_check(path: str) -> bool:
     """Return True for health/readiness probe paths that should not be logged."""
     return path == "/" or path.endswith(LOG_SKIP_SUFFIXES)
 
 
+def _looks_like_id(segment: str) -> bool:
+    """Return True if segment looks like a UUID or numeric ID."""
+    if segment.isdigit():
+        return True
+    # UUID check: correct length and only hex + dashes
+    if len(segment) == 36 and set(segment.lower()) <= _UUID_CHARS:
+        return True
+    return False
+
+
+def _extract_resource_info(path: str) -> tuple[str, str]:
+    """Extract resource type and ID from a URL path.
+
+    Examples:
+        /user-service/api/v1/portal/chat-users           → ("chat-users", "")
+        /user-service/api/v1/portal/chat-users/abc-123    → ("chat-users", "abc-123")
+        /api/v1/agents/abc-123/db-tables                  → ("db-tables", "")
+        /api/v1/agents/abc-123/db-tables/def-456          → ("db-tables", "def-456")
+    """
+    segments = [s for s in path.strip("/").split("/") if s]
+
+    # Filter out known prefixes and IDs to find resource segments
+    resource_type = ""
+    resource_id = ""
+
+    for segment in segments:
+        lower = segment.lower()
+        if lower in _PATH_SKIP_SEGMENTS or lower.endswith("-service"):
+            continue
+        if _looks_like_id(segment):
+            resource_id = segment
+        else:
+            # New resource name found — reset resource_id (it belonged to parent)
+            resource_type = segment
+            resource_id = ""
+
+    return resource_type, resource_id
+
+
+async def _extract_id_from_response(response: Response) -> tuple[str, Response]:
+    """Read response body to extract 'id' field, then rebuild the response.
+
+    Only called for POST 201 (single-object create) — body is always small.
+    Returns the extracted ID and a new Response with the same body.
+    """
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+
+    resource_id = ""
+    try:
+        data = json.loads(body)
+        if isinstance(data, dict):
+            resource_id = str(data.get("id") or data.get("uuid") or "")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        pass
+
+    new_response = Response(
+        content=body,
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        media_type=response.media_type,
+    )
+    return resource_id, new_response
+
+
 class RequestIdLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware to add request ID tracking and request logging.
+    """Middleware to add request ID tracking, request logging, and audit trail.
 
     Ensures every request has a unique ID for tracing across services.
     Logs request method, path, status code, and duration.
+    Automatically emits audit events for mutating requests (POST/PUT/PATCH/DELETE).
     Propagates x-request-id in response header.
     Skips logging for health check / readiness probe paths.
     """
@@ -224,6 +307,34 @@ class RequestIdLoggingMiddleware(BaseHTTPMiddleware):
                 status_code=response.status_code,
                 duration_ms=duration_ms,
             )
+
+            # Audit trail for mutating requests
+            if request.method in _AUDIT_ACTION_MAP:
+                resource_type, resource_id = _extract_resource_info(path)
+
+                # For POST 201 (create), read response body to get resource ID
+                # Single-object creates are small (~1KB), safe to buffer
+                if not resource_id and request.method == "POST" and response.status_code == 201:
+                    resource_id, response = await _extract_id_from_response(response)
+
+                if 200 <= response.status_code < 300:
+                    result = "success"
+                elif 400 <= response.status_code < 500:
+                    result = "failed"
+                else:
+                    result = "error"
+
+                action = _AUDIT_ACTION_MAP[request.method]
+                log.info(
+                    f"{resource_type}.{action}" if resource_type else action,
+                    event_type="audit",
+                    result=result,
+                    method=request.method,
+                    path=path,
+                    status_code=response.status_code,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                )
 
         response.headers["x-request-id"] = request_id
         return response
